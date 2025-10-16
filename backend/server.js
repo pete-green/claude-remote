@@ -31,6 +31,19 @@ wss.on('connection', (ws) => {
   console.log('New WebSocket connection');
   let isAuthenticated = false;
   let clientType = null;
+  let pingInterval = null;
+
+  // Send ping every 15 seconds to keep connection alive
+  const startPingInterval = () => {
+    if (pingInterval) clearInterval(pingInterval);
+    pingInterval = setInterval(() => {
+      if (ws.readyState === ws.OPEN) {
+        ws.ping();
+      } else {
+        clearInterval(pingInterval);
+      }
+    }, 15000);
+  };
 
   // Handle incoming messages
   ws.on('message', (data) => {
@@ -60,6 +73,9 @@ wss.on('connection', (ws) => {
             type: 'auth_success',
             message: 'Authentication successful'
           });
+
+          // Start keepalive pings
+          startPingInterval();
 
           // Notify mobile clients of desktop connection status
           if (clientType === 'desktop') {
@@ -132,6 +148,8 @@ wss.on('connection', (ws) => {
 
   // Handle client disconnect
   ws.on('close', () => {
+    if (pingInterval) clearInterval(pingInterval);
+
     if (ws === desktopClient) {
       console.log('Desktop client disconnected');
       desktopClient = null;
@@ -148,6 +166,11 @@ wss.on('connection', (ws) => {
       mobileClients.delete(ws);
       console.log(`Mobile client disconnected (${mobileClients.size} remaining)`);
     }
+  });
+
+  // Handle pong responses
+  ws.on('pong', () => {
+    // Connection is alive
   });
 
   // Handle errors
