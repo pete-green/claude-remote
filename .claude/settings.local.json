@@ -9,7 +9,9 @@
       "Bash(railway:*)",
       "Bash(netlify:*)",
       "Bash(npm install:*)",
-      "Bash(git push)"
+      "Bash(git push)",
+      "Bash(curl:*)",
+      "Bash(npm start)"
     ],
     "deny": [],
     "ask": []

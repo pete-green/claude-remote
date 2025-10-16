@@ -41,8 +41,8 @@ class WebSocketClient {
         }
       });
 
-      this.ws.on('close', () => {
-        console.log('WebSocket disconnected');
+      this.ws.on('close', (code, reason) => {
+        this.log(`WebSocket disconnected - Code: ${code}, Reason: ${reason || 'No reason provided'}`, 'WARN');
         this.isAuthenticated = false;
         this.stopHeartbeat();
 
@@ -55,7 +55,7 @@ class WebSocketClient {
       });
 
       this.ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
+        this.log(`WebSocket error: ${error.message}`, 'ERROR');
       });
 
     } catch (error) {
@@ -143,11 +143,13 @@ class WebSocketClient {
   }
 
   startHeartbeat() {
+    // Send ping every 10 seconds to keep Railway connection alive
     this.heartbeatInterval = setInterval(() => {
-      if (this.isAuthenticated) {
+      if (this.isAuthenticated && this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.log('Sending heartbeat ping');
         this.send({ type: 'ping' });
       }
-    }, 30000); // Send ping every 30 seconds
+    }, 10000); // Send ping every 10 seconds
   }
 
   stopHeartbeat() {
