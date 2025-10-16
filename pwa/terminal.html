@@ -227,9 +227,11 @@
 
     // Connect to backend
     function connect() {
+      console.log('Creating WebSocket connection to:', BACKEND_URL);
       ws = new ClaudeWebSocket(BACKEND_URL, password);
 
       ws.onConnectionChange((connected) => {
+        console.log('Connection status changed:', connected);
         isConnected = connected;
         if (connected) {
           statusDot.classList.add('connected');
@@ -243,12 +245,14 @@
       });
 
       ws.onMessage((message) => {
+        console.log('Received message:', message.type);
         if (message.type === 'claude_output') {
           // Write terminal output directly (it already contains ANSI codes)
           term.write(message.content);
         }
       });
 
+      console.log('Initiating connection...');
       ws.connect();
     }
 
@@ -268,8 +272,6 @@
     });
 
     // Mobile keyboard handling with buffering
-    let inputBuffer = '';
-
     keyboardToggle.addEventListener('click', () => {
       hiddenInput.focus();
     });
@@ -290,19 +292,10 @@
         const text = hiddenInput.value;
 
         if (text) {
-          // Send each character followed by Enter
-          for (let char of text) {
-            ws.send({
-              type: 'user_input',
-              content: char,
-              timestamp: new Date().toISOString()
-            });
-          }
-
-          // Send the Enter key
+          // Send the entire text as one message followed by Enter
           ws.send({
             type: 'user_input',
-            content: '\r',
+            content: text + '\r',
             timestamp: new Date().toISOString()
           });
 
