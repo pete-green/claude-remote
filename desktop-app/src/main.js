@@ -1,13 +1,13 @@
 const { app, Tray, Menu, dialog, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const ClaudeManager = require('./claude-manager');
+const TerminalManager = require('./terminal-manager');
 const WebSocketClient = require('./websocket-client');
 const config = require('./config');
 const Logger = require('./logger');
 const { createLogWindow } = require('./log-window');
 
 let tray = null;
-let claudeManager = null;
+let terminalManager = null;
 let wsClient = null;
 let isConnected = false;
 let logger = null;
@@ -60,11 +60,12 @@ async function initializeApp() {
       });
     }
 
-    // Initialize Claude Manager
-    claudeManager = new ClaudeManager(cfg.workingDirectory || process.cwd());
+    // Initialize Terminal Manager
+    logger.info('Initializing Terminal Manager...');
+    terminalManager = new TerminalManager(cfg.workingDirectory || process.cwd(), logger);
 
     // Set up output callback
-    claudeManager.onOutput((data) => {
+    terminalManager.onOutput((data) => {
       if (wsClient && wsClient.isAuthenticated) {
         wsClient.send({
           type: 'claude_output',
@@ -80,8 +81,9 @@ async function initializeApp() {
 
     // Set up message handler
     wsClient.onMessage((message) => {
-      if (message.type === 'user_input' && claudeManager) {
-        claudeManager.sendInput(message.content);
+      if (message.type === 'user_input' && terminalManager) {
+        logger.info(`Received user input: ${message.content}`);
+        terminalManager.sendInput(message.content);
       }
     });
 
@@ -91,9 +93,9 @@ async function initializeApp() {
       updateTrayMenu();
 
       if (connected) {
-        // Start Claude Code when connected
-        if (!claudeManager.isRunning) {
-          startClaude();
+        // Start Terminal when connected
+        if (!terminalManager.isRunning) {
+          startTerminal();
         }
       }
     });
@@ -134,8 +136,8 @@ function updateTrayMenu() {
       click: reconnect
     },
     {
-      label: 'Restart Claude',
-      click: restartClaude
+      label: 'Restart Terminal',
+      click: restartTerminal
     },
     { type: 'separator' },
     {
@@ -161,7 +163,7 @@ function openLogWindow() {
     ipcMain.on('get-status', (event) => {
       event.reply('status', {
         wsConnected: isConnected,
-        claudeRunning: claudeManager ? claudeManager.isRunning : false
+        claudeRunning: terminalManager ? terminalManager.isRunning : false
       });
     });
 
@@ -176,41 +178,43 @@ function openLogWindow() {
       if (logWindow && !logWindow.isDestroyed()) {
         logWindow.webContents.send('status', {
           wsConnected: isConnected,
-          claudeRunning: claudeManager ? claudeManager.isRunning : false
+          claudeRunning: terminalManager ? terminalManager.isRunning : false
         });
       }
     }, 2000);
   }
 }
 
-function startClaude() {
+function startTerminal() {
   try {
-    claudeManager.start();
-    console.log('Claude Code process started');
+    logger.info('Starting terminal...');
+    terminalManager.start();
 
     // Send status to mobile clients
     if (wsClient && wsClient.isAuthenticated) {
       wsClient.send({
         type: 'status',
         status: 'ready',
-        message: 'Claude Code is ready'
+        message: 'Terminal is ready'
       });
     }
   } catch (error) {
-    console.error('Error starting Claude:', error);
-    showError('Failed to start Claude Code: ' + error.message);
+    logger.error(`Error starting terminal: ${error.message}`);
+    showError('Failed to start terminal: ' + error.message);
   }
 }
 
 function reconnect() {
   if (wsClient) {
+    logger.info('Manual reconnect triggered');
     wsClient.reconnect();
   }
 }
 
-function restartClaude() {
-  if (claudeManager) {
-    claudeManager.restart();
+function restartTerminal() {
+  if (terminalManager) {
+    logger.info('Restarting terminal...');
+    terminalManager.restart();
   }
 }
 
@@ -333,11 +337,14 @@ function showError(message) {
 }
 
 function exitApp() {
-  if (claudeManager) {
-    claudeManager.stop();
+  if (terminalManager) {
+    logger.info('Stopping terminal...');
+    terminalManager.stop();
   }
   if (wsClient) {
+    logger.info('Disconnecting WebSocket...');
     wsClient.disconnect();
   }
+  logger.info('Exiting application');
   app.quit();
 }
