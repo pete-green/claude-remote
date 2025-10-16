@@ -12,6 +12,7 @@ let wsClient = null;
 let isConnected = false;
 let logger = null;
 let logWindow = null;
+let terminalWindow = null;
 
 // Prevent app from quitting when all windows are closed
 app.on('window-all-closed', () => {
@@ -66,12 +67,18 @@ async function initializeApp() {
 
     // Set up output callback
     terminalManager.onOutput((data) => {
+      // Send to WebSocket clients
       if (wsClient && wsClient.isAuthenticated) {
         wsClient.send({
           type: 'claude_output',
           content: data,
           timestamp: new Date().toISOString()
         });
+      }
+
+      // Send to local terminal window if open
+      if (terminalWindow && !terminalWindow.isDestroyed()) {
+        terminalWindow.webContents.send('terminal-output', data);
       }
     });
 
@@ -124,6 +131,10 @@ function updateTrayMenu() {
     },
     { type: 'separator' },
     {
+      label: 'Open Terminal',
+      click: openTerminalWindow
+    },
+    {
       label: 'View Logs & Status',
       click: openLogWindow
     },
@@ -147,6 +158,59 @@ function updateTrayMenu() {
   ]);
 
   tray.setContextMenu(contextMenu);
+}
+
+function openTerminalWindow() {
+  if (terminalWindow && !terminalWindow.isDestroyed()) {
+    terminalWindow.focus();
+    return;
+  }
+
+  terminalWindow = new BrowserWindow({
+    width: 1000,
+    height: 700,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    },
+    backgroundColor: '#000000',
+    title: 'Claude Code Remote Terminal'
+  });
+
+  terminalWindow.loadFile(path.join(__dirname, 'terminal-window.html'));
+
+  // Handle terminal input from the window
+  ipcMain.on('terminal-input', (event, data) => {
+    if (terminalManager && terminalManager.isRunning) {
+      terminalManager.sendInput(data);
+    }
+  });
+
+  // Send connection status updates
+  const sendStatus = () => {
+    if (terminalWindow && !terminalWindow.isDestroyed()) {
+      terminalWindow.webContents.send('connection-status', isConnected);
+    }
+  };
+
+  // Send initial status after window loads
+  terminalWindow.webContents.once('did-finish-load', () => {
+    sendStatus();
+  });
+
+  // Update status periodically
+  const statusInterval = setInterval(() => {
+    if (terminalWindow && !terminalWindow.isDestroyed()) {
+      sendStatus();
+    } else {
+      clearInterval(statusInterval);
+    }
+  }, 2000);
+
+  terminalWindow.on('closed', () => {
+    terminalWindow = null;
+    clearInterval(statusInterval);
+  });
 }
 
 function openLogWindow() {

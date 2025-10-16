@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code Remote Terminal</title>
+
+  <!-- xterm.js CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Courier New', monospace;
+      background: #000;
+      color: #fff;
+      overflow: hidden;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    .header {
+      background: #1a1a1a;
+      padding: 8px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #333;
+      flex-shrink: 0;
+      -webkit-app-region: drag;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+    }
+
+    .status-dot.connected {
+      background: #22c55e;
+    }
+
+    .btn {
+      padding: 6px 12px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      -webkit-app-region: no-drag;
+    }
+
+    .btn:hover {
+      background: #1d4ed8;
+    }
+
+    .btn-secondary {
+      background: #4b5563;
+    }
+
+    .btn-secondary:hover {
+      background: #374151;
+    }
+
+    #terminal-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #terminal {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 10px;
+    }
+
+    .xterm-viewport {
+      overflow-y: auto !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="header">
+      <div class="header-left">
+        <div class="status-indicator">
+          <div class="status-dot connected" id="statusDot"></div>
+          <span id="statusText">Connected</span>
+        </div>
+      </div>
+      <div>
+        <button class="btn btn-secondary" id="clearBtn">Clear</button>
+      </div>
+    </div>
+
+    <div id="terminal-container">
+      <div id="terminal"></div>
+    </div>
+  </div>
+
+  <!-- xterm.js and addons -->
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    // Initialize terminal
+    const term = new Terminal({
+      cursorBlink: true,
+      fontSize: 14,
+      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      theme: {
+        background: '#000000',
+        foreground: '#ffffff',
+        cursor: '#ffffff',
+        cursorAccent: '#000000',
+        selectionBackground: '#4d4d4d'
+      },
+      scrollback: 10000,
+      allowProposedApi: true
+    });
+
+    // Addons
+    const fitAddon = new FitAddon.FitAddon();
+    const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+
+    term.loadAddon(fitAddon);
+    term.loadAddon(webLinksAddon);
+
+    // Open terminal
+    term.open(document.getElementById('terminal'));
+    fitAddon.fit();
+
+    // Welcome message
+    term.writeln('\x1b[1;36mClaude Code Remote Terminal (Desktop)\x1b[0m');
+    term.writeln('\x1b[90mConnected to local terminal...\x1b[0m');
+    term.writeln('');
+
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const clearBtn = document.getElementById('clearBtn');
+
+    // Listen for terminal output from main process
+    ipcRenderer.on('terminal-output', (event, data) => {
+      term.write(data);
+    });
+
+    // Listen for connection status updates
+    ipcRenderer.on('connection-status', (event, connected) => {
+      if (connected) {
+        statusDot.classList.add('connected');
+        statusText.textContent = 'Connected';
+      } else {
+        statusDot.classList.remove('connected');
+        statusText.textContent = 'Disconnected';
+      }
+    });
+
+    // Handle terminal data (user typing)
+    term.onData((data) => {
+      ipcRenderer.send('terminal-input', data);
+    });
+
+    // Clear terminal
+    clearBtn.addEventListener('click', () => {
+      term.clear();
+    });
+
+    // Resize handling
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        fitAddon.fit();
+      }, 100);
+    });
+
+    // Request initial status
+    ipcRenderer.send('get-initial-output');
+  </script>
+</body>
+</html>
