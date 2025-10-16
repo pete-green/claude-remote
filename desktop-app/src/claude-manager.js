@@ -82,14 +82,26 @@ class ClaudeManager {
   sendInput(input) {
     if (!this.isRunning || !this.claudeProcess) {
       console.error('Claude process not running');
+      if (this.outputCallback) {
+        this.outputCallback('Error: Claude process is not running');
+      }
       return;
     }
 
     try {
       console.log('Sending input to Claude:', input);
+      // Send the input followed by newline
       this.claudeProcess.stdin.write(input + '\n');
+
+      // Also send the output callback that input was sent
+      if (this.outputCallback) {
+        this.outputCallback(`[Sent to Claude: ${input}]`);
+      }
     } catch (error) {
       console.error('Error sending input to Claude:', error);
+      if (this.outputCallback) {
+        this.outputCallback(`Error sending to Claude: ${error.message}`);
+      }
     }
   }
 

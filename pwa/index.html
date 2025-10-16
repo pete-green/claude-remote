@@ -58,7 +58,7 @@
     // Check if already logged in
     const savedPassword = sessionStorage.getItem('password');
     if (savedPassword) {
-      window.location.href = 'chat.html';
+      window.location.href = 'terminal.html';
     }
 
     // Handle login form
@@ -81,9 +81,9 @@
       errorMessage.textContent = '';
 
       try {
-        // Store password and navigate to chat
+        // Store password and navigate to terminal
         sessionStorage.setItem('password', password);
-        window.location.href = 'chat.html';
+        window.location.href = 'terminal.html';
       } catch (error) {
         showError('Login failed: ' + error.message);
         loginButton.disabled = false;

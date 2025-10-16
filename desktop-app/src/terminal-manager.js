@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 const os = require('os');
 
 class TerminalManager {
@@ -24,63 +24,45 @@ class TerminalManager {
       return;
     }
 
-    this.log(`Starting terminal in directory: ${this.workingDirectory}`);
+    this.log(`Starting terminal with PTY in directory: ${this.workingDirectory}`);
 
     try {
-      // Use PowerShell on Windows
+      // Use PowerShell on Windows, bash on Unix
       const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
+      const args = os.platform() === 'win32' ? [] : [];
 
-      this.terminalProcess = spawn(shell, [], {
+      // Spawn terminal with PTY support
+      this.terminalProcess = pty.spawn(shell, args, {
+        name: 'xterm-color',
+        cols: 120,
+        rows: 30,
         cwd: this.workingDirectory,
-        shell: false,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, TERM: 'xterm-256color' }
+        env: process.env
       });
 
       this.isRunning = true;
-      this.log('Terminal process started successfully');
+      this.log('Terminal process with PTY started successfully');
 
-      // Handle stdout
-      this.terminalProcess.stdout.on('data', (data) => {
-        const output = data.toString();
-        this.log(`Terminal output: ${output.substring(0, 100)}...`, 'DEBUG');
+      // Handle terminal output
+      this.terminalProcess.onData((data) => {
+        this.log(`Terminal output: ${data.substring(0, 100)}...`, 'DEBUG');
 
         if (this.outputCallback) {
-          this.outputCallback(output);
+          this.outputCallback(data);
         }
       });
 
-      // Handle stderr
-      this.terminalProcess.stderr.on('data', (data) => {
-        const output = data.toString();
-        this.log(`Terminal error: ${output.substring(0, 100)}...`, 'WARN');
-
-        if (this.outputCallback) {
-          this.outputCallback(output);
-        }
-      });
-
-      // Handle process exit
-      this.terminalProcess.on('close', (code) => {
-        this.log(`Terminal process exited with code ${code}`);
+      // Handle terminal exit
+      this.terminalProcess.onExit(({ exitCode, signal }) => {
+        this.log(`Terminal process exited with code ${exitCode}, signal ${signal}`);
         this.isRunning = false;
 
-        // Auto-restart if it crashed
-        if (code !== 0 && code !== null) {
+        // Auto-restart if it crashed unexpectedly
+        if (exitCode !== 0 && exitCode !== null) {
           this.log('Terminal crashed, restarting in 5 seconds...');
           setTimeout(() => {
             this.start();
           }, 5000);
-        }
-      });
-
-      // Handle process errors
-      this.terminalProcess.on('error', (error) => {
-        this.log(`Failed to start terminal: ${error.message}`, 'ERROR');
-        this.isRunning = false;
-
-        if (this.outputCallback) {
-          this.outputCallback(`Error: Failed to start terminal - ${error.message}\r\n`);
         }
       });
 
@@ -89,9 +71,9 @@ class TerminalManager {
         // Change to working directory and show prompt
         this.sendCommand(`cd "${this.workingDirectory}"`);
         this.sendCommand('cls');
-        this.sendCommand('Write-Host "Claude Code Remote Terminal" -ForegroundColor Cyan');
+        this.sendCommand('Write-Host "Claude Code Remote Terminal (PTY Enabled)" -ForegroundColor Cyan');
         this.sendCommand('Write-Host "Connected from mobile device" -ForegroundColor Green');
-        this.sendCommand('Write-Host "Type \\"claude\\" to start Claude Code" -ForegroundColor Yellow');
+        this.sendCommand('Write-Host "Type \\"claude\\" to start Claude Code interactively" -ForegroundColor Yellow');
         this.sendCommand('Write-Host ""');
       }, 500);
 
@@ -113,8 +95,8 @@ class TerminalManager {
 
     try {
       this.log(`Sending command: ${command}`);
-      // Send command followed by Enter
-      this.terminalProcess.stdin.write(command + '\r\n');
+      // With PTY, write command followed by Enter
+      this.terminalProcess.write(command + '\r');
     } catch (error) {
       this.log(`Error sending command: ${error.message}`, 'ERROR');
       if (this.outputCallback) {
@@ -136,10 +118,10 @@ class TerminalManager {
     this.log('Stopping terminal');
 
     try {
-      // Try graceful shutdown
-      this.terminalProcess.stdin.write('exit\r\n');
+      // Send exit command
+      this.terminalProcess.write('exit\r');
 
-      // Force kill after 3 seconds
+      // Force kill after 3 seconds if still running
       setTimeout(() => {
         if (this.isRunning && this.terminalProcess) {
           this.log('Force killing terminal');
@@ -168,6 +150,18 @@ class TerminalManager {
 
   onOutput(callback) {
     this.outputCallback = callback;
+  }
+
+  // Method to resize terminal (useful for responsive UI)
+  resize(cols, rows) {
+    if (this.terminalProcess && this.isRunning) {
+      try {
+        this.terminalProcess.resize(cols, rows);
+        this.log(`Terminal resized to ${cols}x${rows}`);
+      } catch (error) {
+        this.log(`Error resizing terminal: ${error.message}`, 'ERROR');
+      }
+    }
   }
 }
 

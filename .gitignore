@@ -38,3 +38,9 @@ config.json
 # Temporary files
 *.tmp
 temp/
+
+# Local Netlify folder
+.netlify
+
+# Windows special files
+nul
