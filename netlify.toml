@@ -1,7 +1,7 @@
 [build]
   base = "pwa"
-  publish = "pwa"
-  command = "echo 'No build needed - static files'"
+  publish = "."
+  command = ""
 
 [[redirects]]
   from = "/*"
