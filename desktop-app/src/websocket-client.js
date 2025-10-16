@@ -1,7 +1,7 @@
 const WebSocket = require('ws');
 
 class WebSocketClient {
-  constructor(backendUrl, password) {
+  constructor(backendUrl, password, logger = null) {
     this.backendUrl = backendUrl;
     this.password = password;
     this.ws = null;
@@ -10,15 +10,24 @@ class WebSocketClient {
     this.heartbeatInterval = null;
     this.onMessageCallback = null;
     this.onConnectionChangeCallback = null;
+    this.logger = logger;
+  }
+
+  log(message, level = 'INFO') {
+    if (this.logger) {
+      this.logger.log(message, level);
+    } else {
+      console.log(`[${level}] ${message}`);
+    }
   }
 
   connect() {
     try {
-      console.log(`Connecting to backend: ${this.backendUrl}`);
+      this.log(`Connecting to backend: ${this.backendUrl}`);
       this.ws = new WebSocket(this.backendUrl);
 
       this.ws.on('open', () => {
-        console.log('WebSocket connected');
+        this.log('WebSocket connected - OPEN event received');
         this.authenticate();
         this.startHeartbeat();
       });

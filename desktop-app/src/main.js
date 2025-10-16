@@ -1,13 +1,17 @@
-const { app, Tray, Menu, dialog, BrowserWindow } = require('electron');
+const { app, Tray, Menu, dialog, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const ClaudeManager = require('./claude-manager');
 const WebSocketClient = require('./websocket-client');
 const config = require('./config');
+const Logger = require('./logger');
+const { createLogWindow } = require('./log-window');
 
 let tray = null;
 let claudeManager = null;
 let wsClient = null;
 let isConnected = false;
+let logger = null;
+let logWindow = null;
 
 // Prevent app from quitting when all windows are closed
 app.on('window-all-closed', () => {
@@ -20,17 +24,33 @@ app.whenReady().then(() => {
 
 async function initializeApp() {
   try {
+    // Initialize logger first
+    logger = new Logger();
+    logger.info('='.repeat(50));
+    logger.info('Claude Remote Control - Starting');
+    logger.info('='.repeat(50));
+
+    // Set up log forwarding to log window
+    logger.onLog((logText) => {
+      if (logWindow && !logWindow.isDestroyed()) {
+        logWindow.webContents.send('log', logText);
+      }
+    });
+
     // Load configuration
     const cfg = config.getConfig();
+    logger.info(`Config loaded: Backend=${cfg.backendUrl}, WorkDir=${cfg.workingDirectory}`);
 
     // Validate configuration
     if (!cfg.backendUrl || !cfg.password) {
+      logger.error('Configuration missing - backend URL or password not set');
       showConfigError('Configuration missing. Please set backend URL and password.');
       return;
     }
 
     // Create system tray
     createTray();
+    logger.info('System tray icon created');
 
     // Set auto-start
     if (cfg.autoStart) {
@@ -55,7 +75,8 @@ async function initializeApp() {
     });
 
     // Initialize WebSocket Client
-    wsClient = new WebSocketClient(cfg.backendUrl, cfg.password);
+    logger.info('Initializing WebSocket client...');
+    wsClient = new WebSocketClient(cfg.backendUrl, cfg.password, logger);
 
     // Set up message handler
     wsClient.onMessage((message) => {
@@ -101,6 +122,10 @@ function updateTrayMenu() {
     },
     { type: 'separator' },
     {
+      label: 'View Logs & Status',
+      click: openLogWindow
+    },
+    {
       label: 'Open Settings',
       click: openSettings
     },
@@ -120,6 +145,42 @@ function updateTrayMenu() {
   ]);
 
   tray.setContextMenu(contextMenu);
+}
+
+function openLogWindow() {
+  if (logger) {
+    logWindow = createLogWindow(logger);
+
+    // Set up IPC handlers for log window
+    ipcMain.on('get-logs', (event) => {
+      if (logger) {
+        event.reply('logs-data', logger.getRecentLogs());
+      }
+    });
+
+    ipcMain.on('get-status', (event) => {
+      event.reply('status', {
+        wsConnected: isConnected,
+        claudeRunning: claudeManager ? claudeManager.isRunning : false
+      });
+    });
+
+    ipcMain.on('get-log-file', (event) => {
+      if (logger) {
+        event.reply('log-file', logger.getLogFile());
+      }
+    });
+
+    // Send status updates every 2 seconds
+    setInterval(() => {
+      if (logWindow && !logWindow.isDestroyed()) {
+        logWindow.webContents.send('status', {
+          wsConnected: isConnected,
+          claudeRunning: claudeManager ? claudeManager.isRunning : false
+        });
+      }
+    }, 2000);
+  }
 }
 
 function startClaude() {
