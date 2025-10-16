@@ -1,0 +1,9 @@
+[build]
+  base = "pwa"
+  publish = "pwa"
+  command = "echo 'No build needed - static files'"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
