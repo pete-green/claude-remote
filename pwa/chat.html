@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="theme-color" content="#2563eb">
+  <title>Claude Code Remote</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+</head>
+<body class="chat-page">
+  <div class="chat-container">
+    <header class="chat-header">
+      <div class="header-content">
+        <h1>Claude Code Remote</h1>
+        <div class="header-controls">
+          <div class="status-indicator" id="connectionStatus">
+            <span class="status-dot"></span>
+            <span class="status-text">Connecting...</span>
+          </div>
+          <button class="btn-logout" id="logoutButton">Logout</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="messages-container" id="messagesContainer">
+      <div class="welcome-message">
+        <p>Connected to Claude Code</p>
+        <p class="welcome-subtitle">Type your commands below</p>
+      </div>
+    </div>
+
+    <div class="input-container">
+      <form id="messageForm" class="message-form">
+        <textarea
+          id="messageInput"
+          placeholder="Type your command here..."
+          rows="3"
+        ></textarea>
+        <button type="submit" class="btn-send" id="sendButton">Send</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="websocket.js"></script>
+  <script src="app.js"></script>
+  <script>
+    // Check authentication
+    const password = sessionStorage.getItem('password');
+    if (!password) {
+      window.location.href = 'index.html';
+    }
+
+    // Update backend URL here - CHANGE THIS AFTER DEPLOYING TO RAILWAY
+    const BACKEND_URL = 'wss://your-app.railway.app'; // TODO: Update this!
+
+    let ws = null;
+    let isConnected = false;
+
+    const messagesContainer = document.getElementById('messagesContainer');
+    const messageForm = document.getElementById('messageForm');
+    const messageInput = document.getElementById('messageInput');
+    const sendButton = document.getElementById('sendButton');
+    const logoutButton = document.getElementById('logoutButton');
+    const connectionStatus = document.getElementById('connectionStatus');
+
+    // Initialize WebSocket connection
+    function connect() {
+      ws = new ClaudeWebSocket(BACKEND_URL, password);
+
+      ws.onConnectionChange((connected) => {
+        isConnected = connected;
+        updateConnectionStatus(connected);
+      });
+
+      ws.onMessage((message) => {
+        handleIncomingMessage(message);
+      });
+
+      ws.connect();
+    }
+
+    // Handle incoming messages
+    function handleIncomingMessage(message) {
+      if (message.type === 'claude_output') {
+        addMessage('claude', message.content, message.timestamp);
+      } else if (message.type === 'status') {
+        addMessage('system', message.message || message.status, new Date().toISOString());
+      }
+    }
+
+    // Add message to chat
+    function addMessage(type, content, timestamp) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message message-${type}`;
+
+      const contentDiv = document.createElement('div');
+      contentDiv.className = 'message-content';
+      contentDiv.textContent = content;
+
+      const timeDiv = document.createElement('div');
+      timeDiv.className = 'message-time';
+      timeDiv.textContent = new Date(timestamp).toLocaleTimeString();
+
+      messageDiv.appendChild(contentDiv);
+      messageDiv.appendChild(timeDiv);
+
+      messagesContainer.appendChild(messageDiv);
+
+      // Auto-scroll to bottom
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    // Update connection status UI
+    function updateConnectionStatus(connected) {
+      const statusDot = connectionStatus.querySelector('.status-dot');
+      const statusText = connectionStatus.querySelector('.status-text');
+
+      if (connected) {
+        statusDot.className = 'status-dot status-connected';
+        statusText.textContent = 'Connected';
+      } else {
+        statusDot.className = 'status-dot status-disconnected';
+        statusText.textContent = 'Disconnected';
+      }
+    }
+
+    // Handle message form submission
+    messageForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+
+      const message = messageInput.value.trim();
+      if (!message) return;
+
+      if (!isConnected) {
+        addMessage('system', 'Not connected to server', new Date().toISOString());
+        return;
+      }
+
+      // Add user message to chat
+      addMessage('user', message, new Date().toISOString());
+
+      // Send to backend
+      ws.send({
+        type: 'user_input',
+        content: message,
+        timestamp: new Date().toISOString()
+      });
+
+      // Clear input
+      messageInput.value = '';
+      messageInput.style.height = 'auto';
+    });
+
+    // Handle Enter key (send) and Shift+Enter (new line)
+    messageInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        messageForm.dispatchEvent(new Event('submit'));
+      }
+    });
+
+    // Auto-resize textarea
+    messageInput.addEventListener('input', () => {
+      messageInput.style.height = 'auto';
+      messageInput.style.height = messageInput.scrollHeight + 'px';
+    });
+
+    // Handle logout
+    logoutButton.addEventListener('click', () => {
+      if (ws) {
+        ws.disconnect();
+      }
+      sessionStorage.removeItem('password');
+      window.location.href = 'index.html';
+    });
+
+    // Start connection
+    connect();
+  </script>
+</body>
+</html>

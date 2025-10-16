@@ -1,0 +1,986 @@
+{
+  "project_name": "Remote Claude Code Controller",
+  "version": "1.0.0",
+  "description": "A system to remotely control Claude Code CLI from a mobile device while it runs on a Windows PC with full system access (Git, Netlify, Supabase, file system, etc.)",
+  
+  "architecture": {
+    "overview": "Three-component system with PWA client, WebSocket relay server, and Windows desktop wrapper around Claude Code CLI",
+    "components": [
+      {
+        "name": "PWA Client",
+        "hosting": "Netlify",
+        "technology": "Static HTML/CSS/JavaScript",
+        "purpose": "Mobile-friendly chat interface for controlling Claude Code"
+      },
+      {
+        "name": "Backend Relay",
+        "hosting": "Railway",
+        "technology": "Node.js + Express + ws (WebSocket)",
+        "purpose": "Routes messages between PWA and Windows desktop app"
+      },
+      {
+        "name": "Windows Desktop App",
+        "hosting": "Local Windows PC",
+        "technology": "Electron + Node.js",
+        "purpose": "System tray app that spawns Claude Code CLI and bridges I/O"
+      }
+    ],
+    "data_flow": [
+      "User types in PWA → WebSocket → Backend Relay → Windows App → Claude Code stdin",
+      "Claude Code stdout → Windows App → Backend Relay → PWA → User sees output"
+    ]
+  },
+
+  "tech_stack": {
+    "backend": {
+      "runtime": "Node.js 18+",
+      "framework": "Express.js",
+      "websocket": "ws library",
+      "dependencies": ["express", "ws", "dotenv", "cors"]
+    },
+    "desktop": {
+      "framework": "Electron",
+      "runtime": "Node.js 18+",
+      "dependencies": ["electron", "ws", "electron-store", "child_process (built-in)"]
+    },
+    "pwa": {
+      "languages": ["HTML5", "CSS3", "JavaScript (ES6+)"],
+      "dependencies": "None (vanilla JavaScript)",
+      "features": ["Service Worker", "Web App Manifest", "WebSocket API"]
+    }
+  },
+
+  "project_structure": {
+    "repository_name": "claude-remote",
+    "root_directories": {
+      "backend/": "WebSocket relay server (deploy to Railway)",
+      "desktop-app/": "Electron system tray application (runs on Windows)",
+      "pwa/": "Progressive Web App (deploy to Netlify)"
+    }
+  },
+
+  "implementation_phases": [
+    {
+      "phase": 1,
+      "name": "Backend Relay Server",
+      "priority": "Build first - required for other components to communicate",
+      "deliverables": [
+        "WebSocket server that accepts connections",
+        "Password authentication",
+        "Message routing between desktop and mobile clients",
+        "Connection state management"
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Desktop System Tray App",
+      "priority": "Build second - wraps Claude Code",
+      "deliverables": [
+        "Electron app with system tray icon",
+        "Claude Code process management",
+        "WebSocket client to backend",
+        "I/O capture and forwarding",
+        "Auto-start on Windows boot"
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "PWA Mobile Interface",
+      "priority": "Build third - user interface",
+      "deliverables": [
+        "Login page",
+        "Chat interface",
+        "WebSocket client",
+        "Connection status display",
+        "Service worker for offline support"
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Integration & Testing",
+      "priority": "Final phase",
+      "deliverables": [
+        "End-to-end testing",
+        "Error handling",
+        "Reconnection logic",
+        "Logging system"
+      ]
+    }
+  ],
+
+  "detailed_specifications": {
+    "backend_relay": {
+      "directory": "backend/",
+      "entry_point": "server.js",
+      "port": 8080,
+      "environment_variables": {
+        "AUTH_PASSWORD": {
+          "description": "Shared password for authentication",
+          "required": true,
+          "example": "your-secure-password-here"
+        },
+        "PORT": {
+          "description": "Server port",
+          "required": false,
+          "default": 8080
+        }
+      },
+      "files": {
+        "server.js": {
+          "description": "Main WebSocket relay server",
+          "responsibilities": [
+            "Create WebSocket server",
+            "Handle client authentication",
+            "Route messages between clients",
+            "Manage connection state",
+            "Handle disconnections"
+          ],
+          "code_structure": {
+            "imports": [
+              "const express = require('express');",
+              "const { WebSocketServer } = require('ws');",
+              "const http = require('http');",
+              "require('dotenv').config();"
+            ],
+            "global_state": {
+              "desktopClient": {
+                "type": "WebSocket | null",
+                "description": "Connection to Windows desktop app"
+              },
+              "mobileClients": {
+                "type": "Set<WebSocket>",
+                "description": "Set of connected mobile PWA clients"
+              },
+              "AUTH_PASSWORD": {
+                "type": "string",
+                "source": "process.env.AUTH_PASSWORD"
+              }
+            },
+            "websocket_events": {
+              "connection": {
+                "description": "New WebSocket connection established",
+                "handler": "Handle new client connection, wait for auth message"
+              },
+              "message": {
+                "description": "Message received from client",
+                "handler": "Parse JSON, route based on message type"
+              },
+              "close": {
+                "description": "Client disconnected",
+                "handler": "Clean up client references, notify other clients"
+              },
+              "error": {
+                "description": "WebSocket error",
+                "handler": "Log error, clean up connection"
+              }
+            }
+          }
+        },
+        "package.json": {
+          "description": "Node.js dependencies",
+          "content": {
+            "name": "claude-remote-backend",
+            "version": "1.0.0",
+            "main": "server.js",
+            "scripts": {
+              "start": "node server.js",
+              "dev": "nodemon server.js"
+            },
+            "dependencies": {
+              "express": "^4.18.2",
+              "ws": "^8.14.2",
+              "dotenv": "^16.3.1",
+              "cors": "^2.8.5"
+            },
+            "devDependencies": {
+              "nodemon": "^3.0.1"
+            }
+          }
+        },
+        ".env.example": {
+          "description": "Example environment variables",
+          "content": "AUTH_PASSWORD=your-password-here\nPORT=8080"
+        },
+        "README.md": {
+          "description": "Deployment instructions for Railway"
+        }
+      },
+      "message_protocol": {
+        "auth": {
+          "direction": "Client → Server",
+          "description": "Authenticate client",
+          "payload": {
+            "type": "auth",
+            "password": "string",
+            "client_type": "desktop | mobile"
+          },
+          "response_success": {
+            "type": "auth_success",
+            "message": "Authentication successful"
+          },
+          "response_failure": {
+            "type": "auth_failed",
+            "message": "Invalid password"
+          }
+        },
+        "user_input": {
+          "direction": "Mobile → Server → Desktop",
+          "description": "User command from PWA to Claude Code",
+          "payload": {
+            "type": "user_input",
+            "content": "string",
+            "timestamp": "ISO 8601 datetime"
+          }
+        },
+        "claude_output": {
+          "direction": "Desktop → Server → Mobile",
+          "description": "Claude Code output to PWA",
+          "payload": {
+            "type": "claude_output",
+            "content": "string",
+            "timestamp": "ISO 8601 datetime"
+          }
+        },
+        "status": {
+          "direction": "Desktop → Server → Mobile",
+          "description": "Status updates",
+          "payload": {
+            "type": "status",
+            "status": "ready | processing | error | disconnected",
+            "message": "string (optional)"
+          }
+        },
+        "heartbeat": {
+          "direction": "Bidirectional",
+          "description": "Keep connection alive",
+          "payload": {
+            "type": "ping"
+          },
+          "response": {
+            "type": "pong"
+          }
+        }
+      },
+      "deployment": {
+        "platform": "Railway",
+        "steps": [
+          "Push code to GitHub repository",
+          "Connect Railway to GitHub repo",
+          "Railway auto-detects Node.js and runs 'npm start'",
+          "Set AUTH_PASSWORD in Railway environment variables",
+          "Railway provides WSS URL (e.g., wss://your-app.railway.app)"
+        ],
+        "notes": [
+          "Railway free tier includes 500 hours/month",
+          "WebSocket connections are fully supported",
+          "Automatic HTTPS/WSS certificates provided"
+        ]
+      }
+    },
+
+    "desktop_app": {
+      "directory": "desktop-app/",
+      "entry_point": "src/main.js",
+      "technology": "Electron",
+      "files": {
+        "src/main.js": {
+          "description": "Electron main process - manages app lifecycle and system tray",
+          "responsibilities": [
+            "Initialize Electron app",
+            "Create system tray icon",
+            "Handle auto-start registration",
+            "Manage app lifecycle",
+            "Initialize ClaudeManager and WebSocketClient"
+          ],
+          "key_apis": {
+            "electron.app": "App lifecycle management",
+            "electron.Tray": "System tray icon",
+            "electron.Menu": "Context menu for tray",
+            "app.setLoginItemSettings": "Auto-start on Windows boot"
+          },
+          "system_tray": {
+            "icon": "assets/icon.png (16x16 or 32x32 PNG)",
+            "tooltip": "Claude Code Remote",
+            "menu_items": [
+              {
+                "label": "🟢 Connected",
+                "enabled": false,
+                "dynamic": "Update based on connection state"
+              },
+              { "type": "separator" },
+              {
+                "label": "View Logs",
+                "click": "Open log viewer window"
+              },
+              {
+                "label": "Settings",
+                "click": "Open settings window"
+              },
+              {
+                "label": "Reconnect",
+                "click": "Trigger manual reconnection"
+              },
+              { "type": "separator" },
+              {
+                "label": "Exit",
+                "click": "Stop Claude process and quit app"
+              }
+            ]
+          },
+          "auto_start": {
+            "implementation": "app.setLoginItemSettings({ openAtLogin: true })",
+            "platform": "Windows",
+            "enabled_by_default": true
+          }
+        },
+        "src/claude-manager.js": {
+          "description": "Manages Claude Code CLI process",
+          "responsibilities": [
+            "Spawn Claude Code process",
+            "Capture stdout/stderr in real-time",
+            "Write to stdin when receiving commands",
+            "Handle process errors and restarts",
+            "Manage working directory"
+          ],
+          "class_structure": {
+            "class_name": "ClaudeManager",
+            "properties": {
+              "claudeProcess": "ChildProcess | null",
+              "workingDirectory": "string",
+              "isRunning": "boolean",
+              "outputCallback": "Function"
+            },
+            "methods": {
+              "start": {
+                "description": "Spawn Claude Code process",
+                "implementation": "child_process.spawn('claude', [], { cwd: workingDirectory, shell: true })"
+              },
+              "sendInput": {
+                "description": "Send command to Claude Code",
+                "parameters": ["input: string"],
+                "implementation": "this.claudeProcess.stdin.write(input + '\\n')"
+              },
+              "stop": {
+                "description": "Gracefully stop Claude Code process",
+                "implementation": "Send Ctrl+C, then kill if necessary"
+              },
+              "restart": {
+                "description": "Restart Claude Code process",
+                "implementation": "Call stop() then start()"
+              },
+              "onOutput": {
+                "description": "Register callback for Claude output",
+                "parameters": ["callback: Function"]
+              }
+            }
+          },
+          "process_management": {
+            "spawn_command": "claude",
+            "spawn_options": {
+              "cwd": "User-configured working directory",
+              "shell": true,
+              "stdio": ["pipe", "pipe", "pipe"]
+            },
+            "stdout_handling": "Stream to WebSocket in real-time",
+            "stderr_handling": "Stream to WebSocket with error flag",
+            "stdin_handling": "Write commands received from WebSocket"
+          }
+        },
+        "src/websocket-client.js": {
+          "description": "WebSocket client to connect to backend relay",
+          "responsibilities": [
+            "Establish WebSocket connection to backend",
+            "Authenticate with password",
+            "Send Claude output to backend",
+            "Receive user input from backend",
+            "Handle reconnection",
+            "Send heartbeat pings"
+          ],
+          "class_structure": {
+            "class_name": "WebSocketClient",
+            "properties": {
+              "ws": "WebSocket | null",
+              "backendUrl": "string",
+              "password": "string",
+              "isAuthenticated": "boolean",
+              "reconnectInterval": "NodeJS.Timeout | null",
+              "onMessageCallback": "Function"
+            },
+            "methods": {
+              "connect": {
+                "description": "Establish WebSocket connection",
+                "implementation": "Create WebSocket, set up event handlers"
+              },
+              "authenticate": {
+                "description": "Send authentication message",
+                "implementation": "Send { type: 'auth', password, client_type: 'desktop' }"
+              },
+              "send": {
+                "description": "Send message to backend",
+                "parameters": ["message: object"]
+              },
+              "disconnect": {
+                "description": "Close WebSocket connection"
+              },
+              "reconnect": {
+                "description": "Attempt to reconnect",
+                "implementation": "Try every 5 seconds until successful"
+              },
+              "onMessage": {
+                "description": "Register callback for incoming messages",
+                "parameters": ["callback: Function"]
+              }
+            }
+          },
+          "connection_logic": {
+            "initial_connect": "On app start",
+            "reconnect_on_close": "Automatic, every 5 seconds",
+            "heartbeat": "Send ping every 30 seconds",
+            "timeout": "Reconnect if no pong received within 10 seconds"
+          }
+        },
+        "src/config.js": {
+          "description": "Configuration management using electron-store",
+          "responsibilities": [
+            "Load user configuration",
+            "Save configuration changes",
+            "Provide default values",
+            "Validate configuration"
+          ],
+          "configuration_schema": {
+            "backendUrl": {
+              "type": "string",
+              "description": "WebSocket URL of backend relay",
+              "example": "wss://your-app.railway.app",
+              "required": true
+            },
+            "password": {
+              "type": "string",
+              "description": "Authentication password",
+              "required": true
+            },
+            "workingDirectory": {
+              "type": "string",
+              "description": "Default working directory for Claude Code",
+              "example": "C:\\Projects\\krinos",
+              "required": true
+            },
+            "autoStart": {
+              "type": "boolean",
+              "description": "Start on Windows boot",
+              "default": true
+            }
+          }
+        },
+        "src/settings-window.js": {
+          "description": "Settings UI window (optional, can use config file)",
+          "purpose": "Allow user to configure app without editing JSON",
+          "fields": [
+            "Backend URL input",
+            "Password input",
+            "Working directory picker",
+            "Auto-start checkbox",
+            "Save button"
+          ]
+        }
+      },
+      "package.json": {
+        "content": {
+          "name": "claude-remote-desktop",
+          "version": "1.0.0",
+          "main": "src/main.js",
+          "scripts": {
+            "start": "electron .",
+            "build": "electron-builder",
+            "dev": "electron . --inspect"
+          },
+          "dependencies": {
+            "electron": "^27.0.0",
+            "ws": "^8.14.2",
+            "electron-store": "^8.1.0"
+          },
+          "devDependencies": {
+            "electron-builder": "^24.6.4"
+          },
+          "build": {
+            "appId": "com.claude.remote",
+            "productName": "Claude Remote",
+            "win": {
+              "target": "nsis",
+              "icon": "assets/icon.ico"
+            }
+          }
+        }
+      },
+      "config_file": {
+        "location": "User's app data directory (managed by electron-store)",
+        "windows_path": "C:\\Users\\<username>\\AppData\\Roaming\\claude-remote-desktop\\config.json",
+        "example": {
+          "backendUrl": "wss://your-app.railway.app",
+          "password": "your-secure-password",
+          "workingDirectory": "C:\\Projects\\krinos",
+          "autoStart": true
+        }
+      },
+      "startup_sequence": [
+        "1. Electron app starts",
+        "2. Load configuration from electron-store",
+        "3. Create system tray icon",
+        "4. Initialize ClaudeManager",
+        "5. Initialize WebSocketClient",
+        "6. Connect to backend",
+        "7. Authenticate",
+        "8. Start Claude Code process",
+        "9. Begin bridging I/O",
+        "10. Update tray icon to 'Connected'"
+      ],
+      "error_handling": {
+        "claude_process_crash": "Log error, attempt restart after 5 seconds",
+        "websocket_disconnect": "Automatic reconnection every 5 seconds",
+        "authentication_failure": "Show notification, open settings window",
+        "invalid_config": "Show error dialog, open settings window"
+      }
+    },
+
+    "pwa": {
+      "directory": "pwa/",
+      "entry_point": "index.html",
+      "files": {
+        "index.html": {
+          "description": "Login page",
+          "elements": [
+            "App title and logo",
+            "Password input field",
+            "Login button",
+            "Connection status indicator",
+            "Error message display"
+          ],
+          "behavior": {
+            "on_load": "Check if already logged in (session storage)",
+            "on_login_click": "Validate password, connect to WebSocket",
+            "on_success": "Redirect to chat.html",
+            "on_failure": "Display error message"
+          }
+        },
+        "chat.html": {
+          "description": "Main chat interface",
+          "layout": {
+            "header": {
+              "title": "Claude Code Remote",
+              "connection_status": "🟢 Connected | 🔴 Disconnected",
+              "logout_button": "Disconnect and return to login"
+            },
+            "messages_container": {
+              "description": "Scrollable message history",
+              "message_types": [
+                "user_message: Messages sent by user",
+                "claude_message: Responses from Claude Code",
+                "system_message: Status updates"
+              ],
+              "auto_scroll": "Scroll to bottom when new message arrives"
+            },
+            "input_area": {
+              "textarea": "Multi-line input for commands",
+              "send_button": "Send command to Claude Code",
+              "keyboard_shortcut": "Enter to send, Shift+Enter for new line"
+            }
+          }
+        },
+        "app.js": {
+          "description": "Main application logic",
+          "responsibilities": [
+            "Manage application state",
+            "Handle user interactions",
+            "Display messages",
+            "Manage WebSocket connection via websocket.js"
+          ],
+          "functions": {
+            "login": "Authenticate and establish WebSocket connection",
+            "logout": "Disconnect WebSocket and clear session",
+            "sendMessage": "Send user input to backend",
+            "displayMessage": "Add message to chat UI",
+            "updateConnectionStatus": "Update UI based on connection state",
+            "handleError": "Display error messages to user"
+          }
+        },
+        "websocket.js": {
+          "description": "WebSocket client for PWA",
+          "responsibilities": [
+            "Establish WebSocket connection to backend",
+            "Authenticate with password",
+            "Send messages to backend",
+            "Receive messages from backend",
+            "Handle reconnection"
+          ],
+          "class_structure": {
+            "class_name": "ClaudeWebSocket",
+            "properties": {
+              "ws": "WebSocket | null",
+              "backendUrl": "string",
+              "password": "string",
+              "isConnected": "boolean",
+              "reconnectAttempts": "number"
+            },
+            "methods": {
+              "connect": {
+                "description": "Establish WebSocket connection",
+                "implementation": "new WebSocket(backendUrl)"
+              },
+              "authenticate": {
+                "description": "Send authentication message",
+                "payload": "{ type: 'auth', password, client_type: 'mobile' }"
+              },
+              "send": {
+                "description": "Send user input to backend",
+                "payload": "{ type: 'user_input', content, timestamp }"
+              },
+              "onMessage": {
+                "description": "Handle incoming messages",
+                "types": ["claude_output", "status", "auth_success", "auth_failed"]
+              },
+              "disconnect": {
+                "description": "Close WebSocket connection"
+              },
+              "reconnect": {
+                "description": "Attempt to reconnect",
+                "strategy": "Exponential backoff: 1s, 2s, 4s, 8s, max 30s"
+              }
+            }
+          }
+        },
+        "styles.css": {
+          "description": "Mobile-first responsive styling",
+          "design_principles": [
+            "Mobile-first design",
+            "Dark theme for low-light use",
+            "Large touch targets (44px minimum)",
+            "Clear visual hierarchy",
+            "Smooth animations"
+          ],
+          "key_styles": {
+            "layout": "Flexbox for responsive layout",
+            "colors": {
+              "background": "#1a1a1a",
+              "text": "#ffffff",
+              "user_message": "#2563eb",
+              "claude_message": "#16a34a",
+              "system_message": "#f59e0b"
+            },
+            "fonts": "System font stack for performance",
+            "spacing": "8px base unit for consistent spacing"
+          }
+        },
+        "manifest.json": {
+          "description": "PWA manifest for installation",
+          "content": {
+            "name": "Claude Code Remote",
+            "short_name": "Claude Remote",
+            "description": "Remote control for Claude Code CLI",
+            "start_url": "/",
+            "display": "standalone",
+            "background_color": "#1a1a1a",
+            "theme_color": "#2563eb",
+            "icons": [
+              {
+                "src": "icon-192.png",
+                "sizes": "192x192",
+                "type": "image/png"
+              },
+              {
+                "src": "icon-512.png",
+                "sizes": "512x512",
+                "type": "image/png"
+              }
+            ]
+          }
+        },
+        "service-worker.js": {
+          "description": "Service worker for offline support and PWA functionality",
+          "responsibilities": [
+            "Cache static assets (HTML, CSS, JS)",
+            "Provide offline fallback page",
+            "Handle app updates"
+          ],
+          "caching_strategy": {
+            "html_css_js": "Cache first, network fallback",
+            "images": "Cache first, network fallback",
+            "api_calls": "Network only (WebSocket)"
+          }
+        }
+      },
+      "deployment": {
+        "platform": "Netlify",
+        "steps": [
+          "Push pwa/ directory to GitHub repository",
+          "Connect Netlify to GitHub repo",
+          "Set build directory to 'pwa/'",
+          "Deploy - Netlify provides HTTPS URL automatically"
+        ],
+        "configuration": {
+          "netlify.toml": {
+            "publish": "pwa/",
+            "headers": [
+              {
+                "for": "/service-worker.js",
+                "values": {
+                  "Cache-Control": "no-cache"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "mobile_considerations": {
+        "viewport": "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1\">",
+        "touch_targets": "Minimum 44px for buttons and interactive elements",
+        "input_handling": "Handle both touch and keyboard input",
+        "orientation": "Support both portrait and landscape",
+        "performance": "Minimize JavaScript, optimize for mobile networks"
+      }
+    }
+  },
+
+  "security_considerations": {
+    "authentication": {
+      "method": "Simple shared password",
+      "storage": "Environment variable on server, config file on desktop, session storage on PWA",
+      "transmission": "Over WSS (encrypted WebSocket)",
+      "limitation": "Single user system - password is shared secret"
+    },
+    "network": {
+      "backend_to_desktop": "WebSocket (can be WS or WSS)",
+      "backend_to_pwa": "WSS (WebSocket Secure) only",
+      "railway": "Provides automatic HTTPS/WSS certificates"
+    },
+    "desktop_app": {
+      "system_access": "Full access - can execute any command",
+      "justification": "Intentional design - user wants full control",
+      "risk_mitigation": "Only user has password, app runs on trusted machine"
+    },
+    "recommendations": [
+      "Use a strong, unique password (20+ characters)",
+      "Keep Railway backend URL private",
+      "Don't expose backend to public without authentication",
+      "Consider adding IP whitelist if needed"
+    ]
+  },
+
+  "testing_strategy": {
+    "phase_1_backend": {
+      "tool": "wscat or browser console",
+      "tests": [
+        "Connect to WebSocket server",
+        "Test authentication with correct password",
+        "Test authentication with wrong password",
+        "Test message routing between two clients"
+      ]
+    },
+    "phase_2_desktop": {
+      "tests": [
+        "Launch app and verify system tray icon appears",
+        "Verify Claude Code process spawns",
+        "Verify connection to backend",
+        "Send test command and verify output captured",
+        "Test reconnection after network disconnect"
+      ]
+    },
+    "phase_3_pwa": {
+      "tests": [
+        "Open PWA on mobile browser",
+        "Test login with correct password",
+        "Test login with wrong password",
+        "Send message and verify it appears in chat",
+        "Verify Claude output displays correctly",
+        "Test on multiple devices simultaneously"
+      ]
+    },
+    "phase_4_integration": {
+      "tests": [
+        "End-to-end: Type in PWA → Claude executes → See output in PWA",
+        "Test with real Claude Code commands (git, file operations, etc.)",
+        "Test reconnection handling on all components",
+        "Test with poor network conditions",
+        "Test Claude Code crash recovery"
+      ]
+    }
+  },
+
+  "deployment_checklist": {
+    "backend": [
+      "Create GitHub repository",
+      "Push backend code to repository",
+      "Connect Railway to GitHub",
+      "Set AUTH_PASSWORD environment variable in Railway",
+      "Deploy and get WSS URL (e.g., wss://your-app.railway.app)",
+      "Test WebSocket connection with wscat"
+    ],
+    "desktop": [
+      "Update config with Railway WSS URL",
+      "Update config with password",
+      "Update config with working directory",
+      "Build Electron app: npm run build",
+      "Install on Windows PC",
+      "Verify auto-start works",
+      "Test Claude Code spawns correctly"
+    ],
+    "pwa": [
+      "Update websocket.js with Railway WSS URL",
+      "Push PWA code to GitHub",
+      "Connect Netlify to GitHub",
+      "Deploy to Netlify",
+      "Get HTTPS URL (e.g., https://your-app.netlify.app)",
+      "Test on mobile device",
+      "Install as PWA on home screen"
+    ]
+  },
+
+  "usage_workflow": {
+    "setup": [
+      "1. Deploy backend to Railway",
+      "2. Install desktop app on Windows PC",
+      "3. Configure desktop app with Railway URL and password",
+      "4. Desktop app auto-starts with Windows",
+      "5. Deploy PWA to Netlify"
+    ],
+    "daily_use": [
+      "1. Windows PC is on with desktop app running in background",
+      "2. Open PWA on phone (https://your-app.netlify.app)",
+      "3. Enter password to login",
+      "4. See 'Connected' status",
+      "5. Type commands like: 'Update the homepage on Krinos and deploy to Netlify'",
+      "6. Watch Claude Code execute commands in real-time",
+      "7. See output/results in PWA",
+      "8. Continue conversation with Claude as needed"
+    ]
+  },
+
+  "future_enhancements": [
+    "Multiple project support (switch between projects in PWA)",
+    "Command history and favorites",
+    "File browser in PWA",
+    "Code editor integration in PWA",
+    "Voice input support",
+    "Push notifications for task completion",
+    "Multi-user support with separate accounts",
+    "Session persistence and resume",
+    "Logs viewer in PWA",
+    "Desktop app GUI for advanced settings"
+  ],
+
+  "troubleshooting": {
+    "desktop_app_wont_connect": [
+      "Check internet connection",
+      "Verify Railway backend is running",
+      "Check config.json has correct backend URL",
+      "Verify password matches backend environment variable",
+      "Check Windows Firewall allows outbound connections"
+    ],
+    "pwa_shows_disconnected": [
+      "Check mobile device internet connection",
+      "Verify desktop app is running and connected",
+      "Check browser console for WebSocket errors",
+      "Try logging out and back in",
+      "Clear browser cache and reload"
+    ],
+    "claude_code_not_responding": [
+      "Check if Claude Code process is running (Task Manager)",
+      "Verify working directory exists and is accessible",
+      "Check Claude Code is properly authenticated (run 'claude' manually)",
+      "Restart desktop app",
+      "Check desktop app logs"
+    ],
+    "messages_not_appearing": [
+      "Check WebSocket connection status",
+      "Verify backend relay is routing messages",
+      "Check browser console for errors",
+      "Try refreshing PWA",
+      "Restart desktop app"
+    ]
+  },
+
+  "repository_structure": {
+    "claude-remote/": {
+      "README.md": "Project overview and setup instructions",
+      ".gitignore": "node_modules, .env, build artifacts",
+      "backend/": {
+        "server.js": "WebSocket relay server",
+        "package.json": "Dependencies",
+        ".env.example": "Example environment variables",
+        "README.md": "Backend deployment guide"
+      },
+      "desktop-app/": {
+        "src/": {
+          "main.js": "Electron main process",
+          "claude-manager.js": "Claude Code process manager",
+          "websocket-client.js": "WebSocket client",
+          "config.js": "Configuration management"
+        },
+        "assets/": {
+          "icon.png": "System tray icon",
+          "icon.ico": "Windows app icon"
+        },
+        "package.json": "Dependencies and build config",
+        "README.md": "Desktop app setup guide"
+      },
+      "pwa/": {
+        "index.html": "Login page",
+        "chat.html": "Chat interface",
+        "app.js": "Main app logic",
+        "websocket.js": "WebSocket client",
+        "styles.css": "Styling",
+        "manifest.json": "PWA manifest",
+        "service-worker.js": "Service worker",
+        "icons/": {
+          "icon-192.png": "PWA icon 192x192",
+          "icon-512.png": "PWA icon 512x512"
+        },
+        "README.md": "PWA deployment guide"
+      }
+    }
+  },
+
+  "development_order": {
+    "step_1": {
+      "component": "Backend Relay",
+      "action": "Create and deploy to Railway",
+      "verification": "Test with wscat or browser console",
+      "estimated_time": "1-2 hours"
+    },
+    "step_2": {
+      "component": "Desktop App",
+      "action": "Build Electron wrapper around Claude Code",
+      "verification": "Run locally, verify Claude Code spawns and connects to backend",
+      "estimated_time": "3-4 hours"
+    },
+    "step_3": {
+      "component": "PWA",
+      "action": "Create mobile interface and deploy to Netlify",
+      "verification": "Open on mobile, login, send test message",
+      "estimated_time": "2-3 hours"
+    },
+    "step_4": {
+      "component": "Integration",
+      "action": "Test end-to-end workflow",
+      "verification": "Complete task using PWA → Claude Code → see results",
+      "estimated_time": "1-2 hours"
+    }
+  },
+
+  "notes_for_claude_code": {
+    "instruction": "Read this entire JSON file to understand the project architecture. Start by building the backend relay server first, then the desktop app, then the PWA. Follow the specifications exactly as described. Each component should be in its own directory as specified in the repository structure. Test each component independently before integrating. Use the message protocol defined in the backend_relay section for all WebSocket communication.",
+    "priority_order": [
+      "1. Backend relay (Railway)",
+      "2. Desktop app (Windows)",
+      "3. PWA (Netlify)",
+      "4. Integration testing"
+    ],
+    "key_requirements": [
+      "Backend must handle authentication before routing messages",
+      "Desktop app must capture Claude Code stdout in real-time and stream to backend",
+      "PWA must display messages as they arrive (streaming)",
+      "All WebSocket connections must handle reconnection gracefully",
+      "Desktop app must auto-start with Windows",
+      "Use the exact message protocol defined in this spec"
+    ]
+  }
+}

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="theme-color" content="#2563eb">
+  <title>Claude Code Remote - Login</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+</head>
+<body class="login-page">
+  <div class="login-container">
+    <div class="logo">
+      <h1>Claude Code Remote</h1>
+      <p class="subtitle">Control Claude from anywhere</p>
+    </div>
+
+    <div class="status-indicator" id="connectionStatus">
+      <span class="status-dot"></span>
+      <span class="status-text">Connecting...</span>
+    </div>
+
+    <form id="loginForm" class="login-form">
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input
+          type="password"
+          id="password"
+          placeholder="Enter your password"
+          autocomplete="current-password"
+          required
+        >
+      </div>
+
+      <div class="error-message" id="errorMessage"></div>
+
+      <button type="submit" class="btn-primary" id="loginButton">
+        Login
+      </button>
+    </form>
+
+    <div class="info-text">
+      Make sure your desktop app is running and connected.
+    </div>
+  </div>
+
+  <script src="websocket.js"></script>
+  <script src="app.js"></script>
+  <script>
+    // Register service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js')
+        .then(reg => console.log('Service Worker registered'))
+        .catch(err => console.error('Service Worker registration failed:', err));
+    }
+
+    // Check if already logged in
+    const savedPassword = sessionStorage.getItem('password');
+    if (savedPassword) {
+      window.location.href = 'chat.html';
+    }
+
+    // Handle login form
+    const loginForm = document.getElementById('loginForm');
+    const passwordInput = document.getElementById('password');
+    const loginButton = document.getElementById('loginButton');
+    const errorMessage = document.getElementById('errorMessage');
+
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const password = passwordInput.value.trim();
+      if (!password) {
+        showError('Please enter a password');
+        return;
+      }
+
+      loginButton.disabled = true;
+      loginButton.textContent = 'Connecting...';
+      errorMessage.textContent = '';
+
+      try {
+        // Store password and navigate to chat
+        sessionStorage.setItem('password', password);
+        window.location.href = 'chat.html';
+      } catch (error) {
+        showError('Login failed: ' + error.message);
+        loginButton.disabled = false;
+        loginButton.textContent = 'Login';
+      }
+    });
+
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorMessage.style.display = 'block';
+    }
+  </script>
+</body>
+</html>
