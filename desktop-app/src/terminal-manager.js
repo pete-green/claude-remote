@@ -106,8 +106,17 @@ class TerminalManager {
   }
 
   sendInput(input) {
-    // Alias for sendCommand
-    this.sendCommand(input);
+    if (!this.isRunning || !this.terminalProcess) {
+      this.log('Terminal not running', 'ERROR');
+      return;
+    }
+
+    try {
+      // Write input directly to PTY without adding Enter
+      this.terminalProcess.write(input);
+    } catch (error) {
+      this.log(`Error sending input: ${error.message}`, 'ERROR');
+    }
   }
 
   stop() {
